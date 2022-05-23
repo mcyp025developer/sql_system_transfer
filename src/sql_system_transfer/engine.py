@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, InitVar
 from typing import List, Optional
 from sys import modules
 import pyodbc
-from sql_system_transfer.system import SQLSystem
+from sql_system_transfer.system import SQLSystem, SQLSystemError
 import sql_system_transfer.statements as sql_st
 import sql_system_transfer.datatype as sql_dt
 
@@ -17,7 +17,11 @@ class SQLTableError(Exception):
     pass
 
 
-@dataclass(kw_only=True, frozen=True)
+class SQLDriverError(Exception):
+    pass
+
+
+@dataclass(kw_only=True)
 class Engine:
     system: SQLSystem
     server: str
@@ -26,6 +30,7 @@ class Engine:
     pwd: Optional[str] = field(default=None)
     trusted_connection: str = field(default=None)
     autocommit: bool = field(default=True)
+    _system: SQLSystem = field(init=False, repr=False)
     _connection: pyodbc.Connection = field(init=False, repr=False)
     _statements: sql_st.Statements = field(init=False, repr=False)
     _database_object: Database = field(init=False, repr=False)
@@ -35,6 +40,19 @@ class Engine:
         object.__setattr__(self, "_connection", pyodbc.connect(**self._connection_dict()))
         object.__setattr__(self, "_statements", getattr(sql_st, f"{self.system.system_abbreviation()}Statements")())
         object.__setattr__(self, "_database_object", self._initialize_database())
+
+    @property
+    def system(self) -> SQLSystem:
+        return self._system
+
+    @system.setter
+    def system(self, new_system: SQLSystem) -> None:
+        if not isinstance(new_system, SQLSystem):
+            raise SQLSystemError("Not a valid SQL System.")
+        elif new_system.system_driver().replace("{", "").replace("}", "") not in pyodbc.drivers():
+            raise SQLDriverError(f"{new_system} must have driver - {new_system.system_driver()} on your system.")
+        else:
+            self._system = new_system
 
     def engine_connection(self) -> pyodbc.Connection:
         return self._connection
@@ -113,7 +131,7 @@ class Engine:
         cursor.close()
         return tables
 
-    def _column_information_schema(self, table: str, schema: Optional[str] = None) -> List[dict]:
+    def _column_information_schema(self, table: str, schema: Optional[str] = None) -> list[dict]:
         columns = []
         cursor = self.engine_connection().cursor()
         statement = self._statements.statement_information_schema_columns(
@@ -176,7 +194,7 @@ class Database:
 class Table(ABC):
     table: str
     table_type: str
-    schema: Optional[str] = field(default='dbo')
+    schema: Optional[str] = field(default=None)
     init_table_columns: InitVar[list] = field(default=list)
     table_columns: list = field(init=False, repr=False)
     _system: SQLSystem = field(init=False, repr=False)
@@ -237,6 +255,8 @@ class MsSQLTable(Table):
 
     def __post_init__(self, init_table_columns: list) -> None:
         super().__post_init__(init_table_columns)
+        if self.schema is None:
+            self.__dict__["schema"] = "dbo"
 
     def table_format(self, database: str, alt_table_name: Optional[str] = None) -> str:
         if alt_table_name is None:
