@@ -1,7 +1,7 @@
-# sql_table_transfer_python
+# sql_system_transfer
 
-sql_table_transfer_python is a Python Library for transferring tables between SQL Systems.  Currently, the only SQL 
-systems that sql_table_transfer_python is compatible is Microsoft SQL Server and MySQL.
+sql_system_transfer is a Python Library for transferring tables between SQL Systems.  Currently, the only SQL 
+systems that sql_system_transfer is compatible is Microsoft SQL Server and MySQL.
 
 ##Description
 
