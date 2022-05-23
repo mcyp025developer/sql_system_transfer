@@ -1,3 +1,5 @@
+![Tests](https://github.com/mcyp025developer/sql_system_transfer/actions/workflows/tests.yml/badge.svg)
+
 # sql_system_transfer
 
 sql_system_transfer is a Python Library for transferring tables between SQL Systems.  Currently, the only SQL 
