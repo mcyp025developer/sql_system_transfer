@@ -255,8 +255,7 @@ class MsSQLTable(Table):
 
     def __post_init__(self, init_table_columns: list) -> None:
         super().__post_init__(init_table_columns)
-        if self.schema is None:
-            self.__dict__["schema"] = "dbo"
+        object.__setattr__(self, "schema", "dbo" if self.schema is None else self.schema)
 
     def table_format(self, database: str, alt_table_name: Optional[str] = None) -> str:
         if alt_table_name is None:
@@ -270,7 +269,7 @@ class MySQLTable(Table):
 
     def __post_init__(self, init_table_columns: list) -> None:
         super().__post_init__(init_table_columns)
-        self.__dict__["schema"] = None
+        object.__setattr__(self, "schema", None)
 
     def table_format(self, database: str, alt_table_name: Optional[str] = None) -> str:
         if alt_table_name is None:
