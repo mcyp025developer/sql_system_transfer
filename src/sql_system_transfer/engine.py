@@ -2,7 +2,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, InitVar
-from typing import List, Optional
+from typing import Optional
 from sys import modules
 import pyodbc
 from sql_system_transfer.system import SQLSystem, SQLSystemError
@@ -21,7 +21,7 @@ class SQLDriverError(Exception):
     pass
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class Engine:
     system: SQLSystem
     server: str
@@ -30,38 +30,21 @@ class Engine:
     pwd: Optional[str] = field(default=None)
     trusted_connection: str = field(default=None)
     autocommit: bool = field(default=True)
-    _system: SQLSystem = field(init=False, repr=False)
-    _connection: pyodbc.Connection = field(init=False, repr=False)
-    _statements: sql_st.Statements = field(init=False, repr=False)
-    _database_object: Database = field(init=False, repr=False)
+    connection: pyodbc.Connection = field(init=False, repr=False)
+    statements: sql_st.Statements = field(init=False, repr=False)
+    database_object: Database = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        pyodbc.pooling = True
-        object.__setattr__(self, "_connection", pyodbc.connect(**self._connection_dict()))
-        object.__setattr__(self, "_statements", getattr(sql_st, f"{self.system.system_abbreviation()}Statements")())
-        object.__setattr__(self, "_database_object", self._initialize_database())
-
-    @property
-    def system(self) -> SQLSystem:
-        return self._system
-
-    @system.setter
-    def system(self, new_system: SQLSystem) -> None:
-        if not isinstance(new_system, SQLSystem):
-            raise SQLSystemError("Not a valid SQL System.")
-        elif new_system.system_driver().replace("{", "").replace("}", "") not in pyodbc.drivers():
-            raise SQLDriverError(f"{new_system} must have driver - {new_system.system_driver()} on your system.")
-        else:
-            self._system = new_system
-
-    def engine_connection(self) -> pyodbc.Connection:
-        return self._connection
+        self._engine_system_error()
+        object.__setattr__(self, "connection", pyodbc.connect(**self._connection_dict()))
+        object.__setattr__(self, "statements", getattr(sql_st, f"{self.system.system_abbreviation()}Statements")())
+        object.__setattr__(self, "database_object", self._initialize_database())
 
     def engine_transfer_tables(self, tables: list, engine: Engine) -> None:
-        old_cursor = self.engine_connection().cursor()
-        new_cursor = engine.engine_connection().cursor()
-        old_tables = self._database_object.database_table_convert_old(tables=tables)
-        new_tables = self._database_object.database_table_convert_new(tables=tables, convert_to_system=engine.system)
+        old_cursor = self.connection.cursor()
+        new_cursor = engine.connection.cursor()
+        old_tables = self.database_object.database_table_convert_old(tables=tables)
+        new_tables = self.database_object.database_table_convert_new(tables=tables, convert_to_system=engine.system)
         for old, new in zip(old_tables, new_tables):
             try:
                 self._transfer_table(
@@ -76,16 +59,13 @@ class Engine:
         old_cursor.close()
         new_cursor.close()
 
-    def _initialize_database(self) -> Database:
-        database = Database(system=self.system, database=self.database)
-        tables = self._table_information_schema()
-        for table in tables:
-            try:
-                columns = self._column_information_schema(table=table.get("table"), schema=table.get("schema"))
-                database.add_table_to_database(table=table, columns=columns)
-            except sql_dt.SQLDatatypeError:
-                print(f"{table} has a unsupported datatype")
-        return database
+    def _engine_system_error(self) -> None:
+        if not isinstance(self.system, SQLSystem):
+            raise SQLSystemError("Not a valid SQL System.")
+        elif self.system.system_driver().replace("{", "").replace("}", "") not in pyodbc.drivers():
+            raise SQLDriverError(f"{self.system} must have driver - {self.system.system_driver()} on your system.")
+        else:
+            print(f"{self.system} system requirements successful - {self.system.system_driver()} installed.")
 
     def _connection_dict(self) -> dict:
         return {
@@ -97,6 +77,17 @@ class Engine:
             'trusted_connection': self.trusted_connection,
             'autocommit': self.autocommit
         }
+
+    def _initialize_database(self) -> Database:
+        database = Database(system=self.system, database=self.database)
+        tables = self._table_information_schema()
+        for table in tables:
+            try:
+                columns = self._column_information_schema(table=table.get("table"), schema=table.get("schema"))
+                database.add_table_to_database(table=table, columns=columns)
+            except sql_dt.SQLDatatypeError:
+                print(f"{table} has a unsupported datatype")
+        return database
 
     def _transfer_table(self, engine: Engine, old_table: Table, new_table: Table, old_cursor: pyodbc.Cursor,
                         new_cursor: pyodbc.Cursor) -> None:
@@ -117,8 +108,8 @@ class Engine:
 
     def _table_information_schema(self) -> list:
         tables = []
-        cursor = self.engine_connection().cursor()
-        statement = self._statements.statement_information_schema_tables(database=self.database)
+        cursor = self.connection.cursor()
+        statement = self.statements.statement_information_schema_tables(database=self.database)
         cursor.execute(statement)
         row = cursor.fetchone()
         while row:
@@ -133,8 +124,8 @@ class Engine:
 
     def _column_information_schema(self, table: str, schema: Optional[str] = None) -> list[dict]:
         columns = []
-        cursor = self.engine_connection().cursor()
-        statement = self._statements.statement_information_schema_columns(
+        cursor = self.connection.cursor()
+        statement = self.statements.statement_information_schema_columns(
             database=self.database, table=table, schema=schema
         )
         cursor.execute(statement)
@@ -170,11 +161,11 @@ class Database:
     def database_table_parameters(self) -> list:
         return [table.table_parameters() for table in self.database_tables]
 
-    def database_table_convert_old(self, tables: list) -> List[Table]:
+    def database_table_convert_old(self, tables: list) -> list[Table]:
         new_tables = self._valid_database_tables(tables=tables)
         return [table for table in new_tables]
 
-    def database_table_convert_new(self, tables: list, convert_to_system: SQLSystem) -> List[Table]:
+    def database_table_convert_new(self, tables: list, convert_to_system: SQLSystem) -> list[Table]:
         new_tables = self._valid_database_tables(tables=tables)
         return [table.table_convert(convert_to_system=convert_to_system) for table in new_tables]
 
@@ -182,7 +173,7 @@ class Database:
         table_object = getattr(dbc, f"{self.system.system_abbreviation()}Table")
         self.database_tables.append(table_object(**table, init_table_columns=columns))
 
-    def _valid_database_tables(self, tables: list) -> List[Table]:
+    def _valid_database_tables(self, tables: list) -> list[Table]:
         return [
             table
             for table in self.database_tables
@@ -241,7 +232,7 @@ class Table(ABC):
     def statement_drop_table(self, database: str, alt_table_name: Optional[str] = None) -> str:
         return f"DROP TABLE IF EXISTS {self.table_format(database, alt_table_name)};"
 
-    def _initialize_column_objects(self, columns: list) -> List:
+    def _initialize_column_objects(self, columns: list) -> list:
         column_objects = []
         for column in columns:
             column_object = Column(system=self._system, **column)
@@ -308,7 +299,7 @@ class Column:
     def column_datatype(self) -> str:
         return self._datatype_object.datatype_name
 
-    def column_format(self):
+    def column_format(self) -> str:
         datatype_format = self._datatype_object.datatype_format()
         return f"{self.column_name} {datatype_format} {'not null' if self.nullable == 'NO' else 'null'}"
 

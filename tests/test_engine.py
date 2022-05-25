@@ -1,9 +1,20 @@
 import pytest
-from sql_system_transfer.engine import SQLSystem, Database, MsSQLTable, MySQLTable, Column
+import unittest
+from unittest.mock import patch
+from sql_system_transfer.engine import SQLSystem, Engine, Database, MsSQLTable, MySQLTable, Column
+
+"""
+functional, integrated test think about how to implement.
+
+Think of testing a function that accesses an external HTTP API.  Rather than ensuring that a test server is available 
+to send the correct responses, we can mock the HTTP library and replace all the HTTP calls with mock calls.  This 
+reduces test complexity and dependencies, and gives us precise control over what the HTTP library returns, which may be
+difficult to accomplish otherwise.
+
+In the Engine class we will try to mock the pyodbc library and replace all the pyodbc calls with mock calls.
+"""
 
 
-class TestEngine:
-    pass
 
 
 class TestDatabase:
